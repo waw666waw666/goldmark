@@ -157,16 +157,29 @@ func (b *tableParagraphTransformer) Transform(node *gast.Paragraph, reader text.
 			}
 			body.AppendChild(b.parseRow(lines[j], alignments, false, reader, pc))
 		}
-		node.SetSource(lines[:i-1])
-		node.Parent().InsertAfter(node, table)
-		if len(node.Source()) == 0 {
-			node.Parent().RemoveChild(node)
-		} else {
-			last := node.Source()[i-2]
+		// Insert the table after the paragraph, then detach the original
+		// paragraph. When lines remain above the header, re-insert them as a
+		// fresh paragraph before the table. Detaching the original node makes
+		// transformParagraph report a successful transform so a following
+		// setext underline (RequireParagraph) does not turn the leftover
+		// lines into a heading that ends up after the table (see #641).
+		parent := node.Parent()
+		parent.InsertAfter(node, table)
+		remaining := lines[:i-1]
+		parent.RemoveChild(node)
+		if len(remaining) > 0 {
+			residual := gast.NewParagraph()
+			residual.SetBlankPreviousLines(node.HasBlankPreviousLines())
+			src := make([]text.Segment, len(remaining))
+			copy(src, remaining)
+			last := src[len(src)-1]
 			last.Stop = last.Stop - 1 // trim last newline(\n)
-			node.Source()[i-2] = last
+			src[len(src)-1] = last
+			residual.SetSource(src)
+			residual.SetPos(src[0].Start)
+			parent.InsertBefore(table, residual)
 		}
-		// remaining lines have been consumed by the table
+		// remaining lines of the original paragraph have been consumed by the table
 		return
 	}
 }
